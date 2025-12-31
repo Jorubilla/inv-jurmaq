@@ -1,0 +1,53 @@
+# Archivos secretos y configuracion
+.streamlit/secrets.toml
+.env
+*.json
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+.egg-info/
+.installed.cfg
+*.egg
+PIPFILE.lock
+
+# Virtual Environment
+venv/
+ENV/
+env/
+.venv
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DSStore
+Thumbs.db
+
+# Logs
+*.log
+
+# Temporal files
+tmp/
+temp/
+
+# Cache
+.cache/
+*.cache
