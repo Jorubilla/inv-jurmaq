@@ -1,548 +1,415 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-import re
-from streamlit_qrcode_scanner import qrcode_scanner
+import barcode
+from barcode.writer import ImageWriter
 from io import BytesIO
+from PIL import Image
+import re
+from streamlit_gsheets import GSheetsConnection
+import numpy as np
 
-# Configuración de la página
 st.set_page_config(
     page_title="Inventario JURMAQ",
-    page_icon="🏗️",
+    page_icon="🔧",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# CSS minimalista
 st.markdown("""
 <style>
-    /* Fuentes y colores minimalistas */
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap');
-    
-    html, body, [class*="css"] {
-        font-family: 'Inter', sans-serif;
-    }
-    
-    .main-title {
-        font-size: 1.8rem;
-        font-weight: 300;
-        color: #1a1a1a;
-        letter-spacing: -0.02em;
-        margin-bottom: 0.5rem;
-    }
-    
-    .section-divider {
-        border-top: 1px solid #e0e0e0;
-        margin: 2rem 0 1.5rem 0;
-    }
-    
-    /* Inputs minimalistas */
-    .stTextInput > div > div > input,
-    .stSelectbox > div > div > select {
-        border-radius: 0;
-        border: none;
-        border-bottom: 1px solid #d0d0d0;
-        padding: 0.5rem 0;
-        background: transparent;
-    }
-    
-    .stTextInput > div > div > input:focus,
-    .stSelectbox > div > div > select:focus {
-        border-bottom: 2px solid #1a1a1a;
-        box-shadow: none;
-    }
-    
-    /* Botones minimalistas */
-    .stButton > button {
-        border-radius: 0;
-        border: 1px solid #1a1a1a;
-        background: white;
-        color: #1a1a1a;
-        padding: 0.6rem 2rem;
-        font-weight: 400;
-        letter-spacing: 0.05em;
-        transition: all 0.2s;
-    }
-    
-    .stButton > button:hover {
-        background: #1a1a1a;
-        color: white;
-    }
-    
-    .stButton > button[kind="primary"] {
-        background: #1a1a1a;
-        color: white;
-    }
-    
-    .stButton > button[kind="primary"]:hover {
-        background: #000;
-    }
-    
-    /* Tablas minimalistas */
-    .dataframe {
-        border: none !important;
-    }
-    
-    .dataframe thead tr th {
-        background: white !important;
-        border-bottom: 1px solid #1a1a1a !important;
-        color: #1a1a1a !important;
-        font-weight: 600 !important;
-        padding: 1rem 0.5rem !important;
-        text-transform: uppercase;
-        font-size: 0.75rem;
-        letter-spacing: 0.1em;
-    }
-    
-    .dataframe tbody tr td {
-        border-bottom: 1px solid #f0f0f0 !important;
-        padding: 0.8rem 0.5rem !important;
-    }
-    
-    /* Tabs minimalistas */
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 2rem;
-        border-bottom: 1px solid #e0e0e0;
-    }
-    
-    .stTabs [data-baseweb="tab"] {
-        padding: 0.8rem 0;
-        background: transparent;
-        border: none;
-        color: #999;
-        font-weight: 400;
-    }
-    
-    .stTabs [aria-selected="true"] {
-        color: #1a1a1a;
-        border-bottom: 2px solid #1a1a1a;
-    }
-    
-    /* Sidebar minimalista */
-    section[data-testid="stSidebar"] {
-        background: #fafafa;
-        border-right: 1px solid #e0e0e0;
-    }
-    
-    /* Mensajes minimalistas */
-    .success-msg {
-        padding: 1rem;
-        background: #f5f5f5;
-        border-left: 3px solid #1a1a1a;
-        color: #1a1a1a;
-        font-size: 0.9rem;
-    }
-    
-    .error-msg {
-        padding: 1rem;
-        background: #fff5f5;
-        border-left: 3px solid #dc3545;
-        color: #dc3545;
-        font-size: 0.9rem;
-    }
-    
-    /* Métricas minimalistas */
-    [data-testid="stMetricValue"] {
-        font-size: 2rem;
-        font-weight: 300;
-        color: #1a1a1a;
-    }
-    
-    [data-testid="stMetricLabel"] {
-        font-size: 0.75rem;
-        text-transform: uppercase;
-        letter-spacing: 0.1em;
-        color: #666;
-    }
+.main-header {
+    font-size: 2.5rem;
+    font-weight: bold;
+    color: #1f4788;
+    text-align: center;
+    padding: 1rem;
+    background: linear-gradient(90deg, #1f4788 0%, #2563eb 100%);
+    color: white;
+    border-radius: 10px;
+    margin-bottom: 2rem;
+}
+.stButton > button {
+    width: 100%;
+    background-color: #1f4788;
+    color: white;
+    font-weight: bold;
+    border-radius: 8px;
+    padding: 0.75rem;
+    font-size: 1.1rem;
+}
+.stButton > button:hover {
+    background-color: #2563eb;
+    border-color: #2563eb;
+}
+.success-box {
+    padding: 1rem;
+    background-color: #d4edda;
+    border: 1px solid #c3e6cb;
+    border-radius: 8px;
+    color: #155724;
+    margin: 1rem 0;
+}
+.info-box {
+    padding: 1rem;
+    background-color: #d1ecf1;
+    border: 1px solid #bee5eb;
+    border-radius: 8px;
+    color: #0c5460;
+    margin: 1rem 0;
+}
 </style>
 """, unsafe_allow_html=True)
 
-# Funciones auxiliares
-def extract_run_from_qr(qr_text):
-    if not qr_text:
-        return None
-    match = re.search(r'[&?]run=(\d+[-\d]*)', qr_text.lower())
-    if match:
-        return match.group(1)
-    match = re.search(r'\b(\d{1,2}\.\d{3}\.\d{3}[-][0-9kK]|\d{7,8}[-][0-9kK])\b', qr_text)
-    if match:
-        return match.group(1)
+@st.cache_resource
+def get_sheets_connection():
+    return st.connection("gsheets", type=GSheetsConnection)
+
+@st.cache_data(ttl=60)
+def load_data():
+    try:
+        conn = get_sheets_connection()
+        df = conn.read(worksheet="Inventario", usecols=list(range(8)))
+        return df.dropna(how="all")
+    except Exception as e:
+        st.error(f"Error al cargar datos: {e}")
+        return pd.DataFrame(columns=["Codigo", "Nombre", "Categoria", "Ubicacion", "Estado", "Responsable", "FechaUltimoMovimiento", "RUTResponsable"])
+
+def save_to_sheets(df, worksheet="Inventario"):
+    try:
+        conn = get_sheets_connection()
+        conn.update(worksheet=worksheet, data=df)
+        return True
+    except Exception as e:
+        st.error(f"Error al guardar: {e}")
+        return False
+
+def log_movement(codigo, accion, ubicacion, responsable, rut):
+    try:
+        conn = get_sheets_connection()
+        try:
+            historial = conn.read(worksheet="Historial", usecols=list(range(6)), ttl=5)
+        except:
+            historial = pd.DataFrame(columns=["Fecha", "Codigo", "Accion", "Ubicacion", "Responsable", "RUT"])
+        
+        nuevo_registro = pd.DataFrame([{
+            "Fecha": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "Codigo": codigo,
+            "Accion": accion,
+            "Ubicacion": ubicacion,
+            "Responsable": responsable,
+            "RUT": rut
+        }])
+        historial = pd.concat([historial, nuevo_registro], ignore_index=True)
+        conn.update(worksheet="Historial", data=historial)
+        return True
+    except Exception as e:
+        st.error(f"Error al registrar movimiento: {e}")
+        return False
+        
+def generar_codigo_barra_imagen(valor):
+    buffer = BytesIO()
+    barcode_obj = barcode.get_code128(valor, writer=ImageWriter())
+    barcode_obj.write(buffer, options={"module_width": 0.3, "module_height": 15.0, "font_size": 12, "text_distance": 5, "quiet_zone": 6.5})
+    buffer.seek(0)
+    return buffer.getvalue()
+
+def generar_codigo_unico(df_inv):
+    if df_inv.empty:
+        return "JUR-000001"
+    existentes = df_inv["Codigo"].tolist()
+    nums = []
+    for c in existentes:
+        try:
+            nums.append(int(c.split("-")[-1]))
+        except:
+            continue
+    nxt = max(nums) + 1 if nums else 1
+    return f"JUR-{nxt:06d}"
+
+def extraer_rut_desde_qr(qrtext):
+    if "&run=" in qrtext:
+        parte = qrtext.split("&run=")[1]
+        rut = parte.split("&")[0]
+        return rut.strip()
     return None
 
-def validate_rut(rut):
-    if not rut:
-        return False
-    pattern = r'^\d{1,2}\.?\d{3}\.?\d{3}[-][0-9kK]$'
-    return bool(re.match(pattern, str(rut)))
+def formatar_rut(rut):
+    rut = re.sub(r"[^0-9Kk]", "", str(rut))
+    if len(rut) < 2:
+        return rut
+    return f"{rut[:-1]}-{rut[-1]}"
 
-@st.cache_resource
-def get_gsheets_connection():
-    try:
-        conn = st.connection("gsheets", type="gsheets")
-        return conn
-    except Exception as e:
-        st.error(f"Error de conexión: {str(e)}")
-        return None
+st.markdown('<div class="main-header">🔨 SISTEMA INVENTARIO JURMAQ</div>', unsafe_allow_html=True)
 
-@st.cache_data(ttl=60)
-def load_inventory_data(_conn):
-    try:
-        df = _conn.read(worksheet="Inventario", ttl=0)
-        return df
-    except Exception as e:
-        st.error(f"Error al cargar inventario: {str(e)}")
-        return pd.DataFrame()
+st.sidebar.title("Menu de navegacion")
+modulo = st.sidebar.radio(
+    "Seleccione módulo",
+    ["Registrar Herramienta", "Operaciones de Terreno", "Modo Administrador"],
+    label_visibility="collapsed"
+)
 
-@st.cache_data(ttl=60)
-def load_log_data(_conn):
-    try:
-        df = _conn.read(worksheet="Log_Movimientos", ttl=0)
-        return df
-    except Exception as e:
-        return pd.DataFrame(columns=['Fecha', 'Hora', 'Codigo_Herramienta', 'Tipo_Movimiento', 
-                                     'Ubicacion_Origen', 'Ubicacion_Destino', 'RUT_Responsable', 
-                                     'Nombre_Responsable', 'Observaciones'])
-
-def register_movement(conn, codigo, tipo_mov, ubicacion_origen, ubicacion_destino, 
-                      rut_responsable, nombre_responsable, observaciones=""):
-    try:
-        log_df = load_log_data(conn)
-        new_row = pd.DataFrame([{
-            'Fecha': datetime.now().strftime('%Y-%m-%d'),
-            'Hora': datetime.now().strftime('%H:%M:%S'),
-            'Codigo_Herramienta': codigo,
-            'Tipo_Movimiento': tipo_mov,
-            'Ubicacion_Origen': ubicacion_origen,
-            'Ubicacion_Destino': ubicacion_destino,
-            'RUT_Responsable': rut_responsable,
-            'Nombre_Responsable': nombre_responsable,
-            'Observaciones': observaciones
-        }])
-        updated_log = pd.concat([log_df, new_row], ignore_index=True)
-        conn.update(worksheet="Log_Movimientos", data=updated_log)
-        return True
-    except Exception as e:
-        st.error(f"Error: {str(e)}")
-        return False
-
-def update_inventory(conn, codigo, nueva_ubicacion, rut_responsable, nombre_responsable):
-    try:
-        inv_df = load_inventory_data(conn)
-        mask = inv_df['Codigo'] == codigo
-        if not mask.any():
-            st.error(f"Código {codigo} no encontrado")
-            return False
-        inv_df.loc[mask, 'Ubicacion_Actual'] = nueva_ubicacion
-        inv_df.loc[mask, 'RUT_Responsable'] = rut_responsable
-        inv_df.loc[mask, 'Nombre_Responsable'] = nombre_responsable
-        inv_df.loc[mask, 'Ultima_Actualizacion'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        conn.update(worksheet="Inventario", data=inv_df)
-        st.cache_data.clear()
-        return True
-    except Exception as e:
-        st.error(f"Error: {str(e)}")
-        return False
-
-def export_to_excel(df):
-    output = BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df.to_excel(writer, index=False, sheet_name='Reporte')
-    output.seek(0)
-    return output
-
-# INTERFAZ DE USUARIO
-def show_user_interface(conn):
-    st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
+if modulo == "Registrar Herramienta":
+    st.header("Registrar Nueva Herramienta")
     
-    tab1, tab2, tab3 = st.tabs(["Salida a Obra", "Devolución", "Traslado"])
+    col1, col2 = st.columns(2)
+    with col1:
+        nombre = st.text_input("Nombre de la Herramienta", placeholder="Ej. Taladro Bosch")
+        categoria = st.selectbox(
+            "Categoría",
+            ["Herramientas Eléctricas", "Herramientas Manuales", "Equipos de Medicin", "Maquinaria Pesada", "EPP", "Otro"]
+        )
+    with col2:
+        ubicacion = st.selectbox(
+            "Ubicación Inicial",
+            ["Bodega Central", "Obra Nestle", "Obra Teno", "Obra Central", "Otro"]
+        )
+        if ubicacion == "Otro":
+            ubicacion = st.text_input("Especifique ubicación")
+    
+    if st.button("Registrar y Generar Código de Barras", use_container_width=True):
+        if nombre:
+            df = load_data()
+            timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+            codigo = generar_codigo_unico(df)
+            barcode_img = generar_codigo_barra_imagen(codigo)
+            
+            if barcode_img:
+                st.success("¡Herramienta registrada exitosamente!")
+                st.markdown(f'<div class="success-box"><b>Código generado: {codigo}</b></div>', unsafe_allow_html=True)
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    image = Image.open(BytesIO(barcode_img))
+                    st.image(image, caption=f"Código de Barras: {codigo}", use_container_width=True)
+                with col2:
+                    st.download_button(
+                        label="Descargar PNG",
+                        data=barcode_img,
+                        file_name=f"{codigo}.png",
+                        mime="image/png",
+                        use_container_width=True
+                    )
+                
+                nuevo_registro = pd.DataFrame([{
+                    "Codigo": codigo,
+                    "Nombre": nombre,
+                    "Categoria": categoria,
+                    "Ubicacion": ubicacion,
+                    "Estado": "Disponible",
+                    "Responsable": "NA",
+                    "FechaUltimoMovimiento": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "RUTResponsable": "NA"
+                }])
+                
+                if df.empty:
+                    df = nuevo_registro
+                else:
+                    df = pd.concat([df, nuevo_registro], ignore_index=True)
+                
+                if save_to_sheets(df):
+                    log_movement(codigo, "Registro Inicial", ubicacion, "Sistema", "NA")
+                    st.balloons()
+                else:
+                    st.error("Error al guardar la herramienta")
+        else:
+            st.error("Por favor ingrese el nombre de la herramienta")
+            
+elif modulo == "Operaciones de Terreno":
+    st.header("Operaciones de Terreno")
+    
+    tab1, tab2 = st.tabs(["Buscar por Codigo", "Escanear QR Carnet"])
     
     with tab1:
-        st.markdown("#### Salida desde Bodega")
-        st.write("")
+        st.subheader("Identificar Herramienta")
+        codigo_buscar = st.text_input("Ingrese o escanee codigo de barras", placeholder="JUR20250101120000")
         
-        col1, col2 = st.columns([1, 1])
-        
-        with col1:
-            st.caption("CÓDIGO DE HERRAMIENTA")
-            scan_tool = st.checkbox("Escanear QR", key="scan_tool_salida")
-            if scan_tool:
-                qr_tool = qrcode_scanner(key="qr_tool_salida")
-                codigo_herramienta = qr_tool if qr_tool else ""
+        if codigo_buscar:
+            df = load_data()
+            herramienta = df[df["Codigo"] == codigo_buscar]
+            
+            if not herramienta.empty:
+                st.markdown('<div class="info-box">', unsafe_allow_html=True)
+                st.markdown(f"**Herramienta:** {herramienta.iloc[0]['Nombre']}")
+                st.markdown(f"**Categoria:** {herramienta.iloc[0]['Categoria']}")
+                st.markdown(f"**Ubicacion Actual:** {herramienta.iloc[0]['Ubicacion']}")
+                st.markdown(f"**Estado:** {herramienta.iloc[0]['Estado']}")
+                st.markdown(f"**Responsable:** {herramienta.iloc[0]['Responsable']}")
+                st.markdown('</div>', unsafe_allow_html=True)
+                
+                st.divider()
+                st.subheader("Identificar Persona Responsable")
+                col1, col2 = st.columns(2)
+                with col1:
+                    rut_manual = st.text_input("Ingrese RUT", placeholder="12345678-9")
+                with col2:
+                    nombre_responsable = st.text_input("Nombre Completo", placeholder="Juan Perez")
+                
+                st.divider()
+                st.subheader("Registrar Movimiento")
+                
+                col1, col2, col3 = st.columns(3)
+                nueva_ubicacion = st.selectbox(
+                    "Nueva Ubicacion (Obra)",
+                    ["Bodega Central", "Obra Nestle", "Obra Teno", "Obra Central", "Otro"],
+                    key=f"destino_{codigo_buscar}"
+                )
+                if nueva_ubicacion == "Otro":
+                    nueva_ubicacion = st.text_input("Especifique ubicacion")
+                
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    if st.button("Salida a Obra", use_container_width=True):
+                        if rut_manual and nombre_responsable:
+                            df.loc[df["Codigo"] == codigo_buscar, "Estado"] = "En Uso"
+                            df.loc[df["Codigo"] == codigo_buscar, "Ubicacion"] = nueva_ubicacion
+                            df.loc[df["Codigo"] == codigo_buscar, "Responsable"] = nombre_responsable
+                            df.loc[df["Codigo"] == codigo_buscar, "RUTResponsable"] = formatar_rut(rut_manual)
+                            df.loc[df["Codigo"] == codigo_buscar, "FechaUltimoMovimiento"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                            
+                            if save_to_sheets(df):
+                                log_movement(codigo_buscar, "Salida a Obra", nueva_ubicacion, nombre_responsable, formatar_rut(rut_manual))
+                                st.success(f"Herramienta enviada a {nueva_ubicacion}")
+                                st.rerun()
+                        else:
+                            st.error("Complete RUT y Nombre")
+                
+                with col2:
+                    if st.button("Devolucion", use_container_width=True):
+                        df.loc[df["Codigo"] == codigo_buscar, "Estado"] = "Disponible"
+                        df.loc[df["Codigo"] == codigo_buscar, "Ubicacion"] = "Bodega Central"
+                        df.loc[df["Codigo"] == codigo_buscar, "Responsable"] = "NA"
+                        df.loc[df["Codigo"] == codigo_buscar, "RUTResponsable"] = "NA"
+                        df.loc[df["Codigo"] == codigo_buscar, "FechaUltimoMovimiento"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        
+                        if save_to_sheets(df):
+                            log_movement(codigo_buscar, "Devolucion", "Bodega Central", nombre_responsable if nombre_responsable else "NA", formatar_rut(rut_manual) if rut_manual else "NA")
+                            st.success("Herramienta devuelta a bodega")
+                            st.rerun()
+                
+                with col3:
+                    if st.button("Traslado", use_container_width=True):
+                        if rut_manual and nombre_responsable:
+                            df.loc[df["Codigo"] == codigo_buscar, "Ubicacion"] = nueva_ubicacion
+                            df.loc[df["Codigo"] == codigo_buscar, "Responsable"] = nombre_responsable
+                            df.loc[df["Codigo"] == codigo_buscar, "RUTResponsable"] = formatar_rut(rut_manual)
+                            df.loc[df["Codigo"] == codigo_buscar, "FechaUltimoMovimiento"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                            
+                            if save_to_sheets(df):
+                                log_movement(codigo_buscar, "Traslado", nueva_ubicacion, nombre_responsable, formatar_rut(rut_manual))
+                                st.success(f"Herramienta trasladada a {nueva_ubicacion}")
+                                st.rerun()
+                        else:
+                            st.error("Complete RUT y Nombre")
             else:
-                codigo_herramienta = st.text_input("", key="manual_tool_salida", label_visibility="collapsed", placeholder="Ingrese código")
-        
-        with col2:
-            st.caption("RUT RESPONSABLE")
-            scan_rut = st.checkbox("Escanear Carnet", key="scan_rut_salida")
-            if scan_rut:
-                qr_rut = qrcode_scanner(key="qr_rut_salida")
-                if qr_rut:
-                    extracted_rut = extract_run_from_qr(qr_rut)
-                    rut_responsable = extracted_rut if extracted_rut else qr_rut
-                else:
-                    rut_responsable = ""
-            else:
-                rut_responsable = st.text_input("", key="manual_rut_salida", label_visibility="collapsed", placeholder="12.345.678-9")
-        
-        st.write("")
-        nombre_responsable = st.text_input("Nombre", key="nombre_salida", placeholder="Nombre completo")
-        obra_destino = st.selectbox("Obra destino", ["Nestle Purina", "Teno", "Central"], key="obra_salida")
-        observaciones_salida = st.text_area("Observaciones", key="obs_salida", height=100, placeholder="Opcional")
-        
-        st.write("")
-        if st.button("Registrar Salida", type="primary", key="btn_salida"):
-            if not codigo_herramienta:
-                st.markdown('<div class="error-msg">Debe ingresar código de herramienta</div>', unsafe_allow_html=True)
-            elif not rut_responsable or not validate_rut(rut_responsable):
-                st.markdown('<div class="error-msg">Debe ingresar un RUT válido</div>', unsafe_allow_html=True)
-            elif not nombre_responsable:
-                st.markdown('<div class="error-msg">Debe ingresar nombre del responsable</div>', unsafe_allow_html=True)
-            else:
-                if register_movement(conn, codigo_herramienta, "Salida a Obra", "Bodega Central", 
-                                    obra_destino, rut_responsable, nombre_responsable, observaciones_salida):
-                    if update_inventory(conn, codigo_herramienta, obra_destino, rut_responsable, nombre_responsable):
-                        st.markdown('<div class="success-msg">✓ Salida registrada correctamente</div>', unsafe_allow_html=True)
+                st.error("Codigo no encontrado en el inventario")
     
     with tab2:
-        st.markdown("#### Devolución a Bodega")
-        st.write("")
+        st.subheader("Escanear QR del Carnet")
+        st.info("Escanee el codigo QR del reverso del carnet de identidad chileno")
+        qrtext = st.text_area("Pegue el texto del QR escaneado", placeholder="Ejemplo ...&run=12345678...", height=100)
         
-        col1, col2 = st.columns([1, 1])
-        
-        with col1:
-            st.caption("CÓDIGO DE HERRAMIENTA")
-            scan_tool_dev = st.checkbox("Escanear QR", key="scan_tool_dev")
-            if scan_tool_dev:
-                qr_tool_dev = qrcode_scanner(key="qr_tool_dev")
-                codigo_dev = qr_tool_dev if qr_tool_dev else ""
-            else:
-                codigo_dev = st.text_input("", key="manual_tool_dev", label_visibility="collapsed", placeholder="Ingrese código")
-        
-        with col2:
-            st.caption("RUT RESPONSABLE")
-            scan_rut_dev = st.checkbox("Escanear Carnet", key="scan_rut_dev")
-            if scan_rut_dev:
-                qr_rut_dev = qrcode_scanner(key="qr_rut_dev")
-                if qr_rut_dev:
-                    extracted_rut_dev = extract_run_from_qr(qr_rut_dev)
-                    rut_dev = extracted_rut_dev if extracted_rut_dev else qr_rut_dev
+        if st.button("Extraer RUT"):
+            if qrtext:
+                rut = extraer_rut_desde_qr(qrtext)
+                if rut:
+                    st.success(f"RUT extraido: {formatar_rut(rut)}")
+                    st.code(formatar_rut(rut), language=None)
                 else:
-                    rut_dev = ""
+                    st.error("No se pudo extraer el RUT. Verifique el formato del QR")
             else:
-                rut_dev = st.text_input("", key="manual_rut_dev", label_visibility="collapsed", placeholder="12.345.678-9")
-        
-        st.write("")
-        nombre_dev = st.text_input("Nombre", key="nombre_dev", placeholder="Nombre completo")
-        obra_origen_dev = st.selectbox("Obra origen", ["Nestle Purina", "Teno", "Central"], key="obra_dev")
-        observaciones_dev = st.text_area("Observaciones", key="obs_dev", height=100, placeholder="Opcional")
-        
-        st.write("")
-        if st.button("Registrar Devolución", type="primary", key="btn_dev"):
-            if not codigo_dev:
-                st.markdown('<div class="error-msg">Debe ingresar código de herramienta</div>', unsafe_allow_html=True)
-            elif not rut_dev or not validate_rut(rut_dev):
-                st.markdown('<div class="error-msg">Debe ingresar un RUT válido</div>', unsafe_allow_html=True)
-            elif not nombre_dev:
-                st.markdown('<div class="error-msg">Debe ingresar nombre del responsable</div>', unsafe_allow_html=True)
-            else:
-                if register_movement(conn, codigo_dev, "Devolución a Bodega", obra_origen_dev,
-                                    "Bodega Central", rut_dev, nombre_dev, observaciones_dev):
-                    if update_inventory(conn, codigo_dev, "Bodega Central", "", ""):
-                        st.markdown('<div class="success-msg">✓ Devolución registrada correctamente</div>', unsafe_allow_html=True)
-    
-    with tab3:
-        st.markdown("#### Traslado entre Obras")
-        st.write("")
-        
-        col1, col2 = st.columns([1, 1])
-        
-        with col1:
-            st.caption("CÓDIGO DE HERRAMIENTA")
-            scan_tool_tras = st.checkbox("Escanear QR", key="scan_tool_tras")
-            if scan_tool_tras:
-                qr_tool_tras = qrcode_scanner(key="qr_tool_tras")
-                codigo_tras = qr_tool_tras if qr_tool_tras else ""
-            else:
-                codigo_tras = st.text_input("", key="manual_tool_tras", label_visibility="collapsed", placeholder="Ingrese código")
-        
-        with col2:
-            st.caption("RUT RESPONSABLE")
-            scan_rut_tras = st.checkbox("Escanear Carnet", key="scan_rut_tras")
-            if scan_rut_tras:
-                qr_rut_tras = qrcode_scanner(key="qr_rut_tras")
-                if qr_rut_tras:
-                    extracted_rut_tras = extract_run_from_qr(qr_rut_tras)
-                    rut_tras = extracted_rut_tras if extracted_rut_tras else qr_rut_tras
-                else:
-                    rut_tras = ""
-            else:
-                rut_tras = st.text_input("", key="manual_rut_tras", label_visibility="collapsed", placeholder="12.345.678-9")
-        
-        st.write("")
-        nombre_tras = st.text_input("Nombre", key="nombre_tras", placeholder="Nombre completo")
-        
-        col_orig, col_dest = st.columns(2)
-        with col_orig:
-            obra_origen_tras = st.selectbox("Obra origen", ["Nestle Purina", "Teno", "Central"], key="obra_orig_tras")
-        with col_dest:
-            obra_destino_tras = st.selectbox("Obra destino", ["Nestle Purina", "Teno", "Central"], key="obra_dest_tras")
-        
-        observaciones_tras = st.text_area("Observaciones", key="obs_tras", height=100, placeholder="Opcional")
-        
-        st.write("")
-        if st.button("Registrar Traslado", type="primary", key="btn_tras"):
-            if not codigo_tras:
-                st.markdown('<div class="error-msg">Debe ingresar código de herramienta</div>', unsafe_allow_html=True)
-            elif not rut_tras or not validate_rut(rut_tras):
-                st.markdown('<div class="error-msg">Debe ingresar un RUT válido</div>', unsafe_allow_html=True)
-            elif not nombre_tras:
-                st.markdown('<div class="error-msg">Debe ingresar nombre del responsable</div>', unsafe_allow_html=True)
-            elif obra_origen_tras == obra_destino_tras:
-                st.markdown('<div class="error-msg">Origen y destino deben ser diferentes</div>', unsafe_allow_html=True)
-            else:
-                if register_movement(conn, codigo_tras, "Traslado", obra_origen_tras,
-                                    obra_destino_tras, rut_tras, nombre_tras, observaciones_tras):
-                    if update_inventory(conn, codigo_tras, obra_destino_tras, rut_tras, nombre_tras):
-                        st.markdown('<div class="success-msg">✓ Traslado registrado correctamente</div>', unsafe_allow_html=True)
+                st.warning("Por favor pegue el texto del QR")
 
-# PANEL ADMINISTRADOR
-def show_admin_interface(conn):
-    st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
+elif modulo == "Modo Administrador":
+    st.header("Modo Administrador")
     
-    admin_tab1, admin_tab2, admin_tab3 = st.tabs(["Panel de Control", "Historial", "Exportar"])
+    if "admin_logged" not in st.session_state:
+        st.session_state.admin_logged = False
     
-    with admin_tab1:
-        st.markdown("#### Panel de Control")
-        st.write("")
-        
-        inv_df = load_inventory_data(conn)
-        
-        if not inv_df.empty:
-            # Métricas
-            col1, col2, col3, col4 = st.columns(4)
-            with col1:
-                st.metric("Total Herramientas", len(inv_df))
-            with col2:
-                st.metric("En Bodega", len(inv_df[inv_df['Ubicacion_Actual'] == 'Bodega Central']))
-            with col3:
-                st.metric("En Obras", len(inv_df[inv_df['Ubicacion_Actual'] != 'Bodega Central']))
-            with col4:
-                st.metric("Nestlé Purina", len(inv_df[inv_df['Ubicacion_Actual'] == 'Nestle Purina']))
-            
-            st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
-            
-            # Filtros
-            st.caption("FILTRAR POR UBICACIÓN")
-            filtro_obra = st.selectbox("", ["Todas", "Bodega Central", "Nestle Purina", "Teno", "Central"], 
-                                      key="filtro_obra", label_visibility="collapsed")
-            
-            if filtro_obra != "Todas":
-                df_filtrado = inv_df[inv_df['Ubicacion_Actual'] == filtro_obra]
+    if not st.session_state.admin_logged:
+        password = st.text_input("Contrasena de Administrador", type="password")
+        if st.button("Ingresar"):
+            admin_pass = st.secrets.get("admin_password", "admin123")
+            if password == admin_pass:
+                st.session_state.admin_logged = True
+                st.rerun()
             else:
-                df_filtrado = inv_df
-            
-            st.write("")
-            st.dataframe(df_filtrado, use_container_width=True, hide_index=True)
-        else:
-            st.info("No hay datos en el inventario")
-    
-    with admin_tab2:
-        st.markdown("#### Historial de Movimientos")
-        st.write("")
-        
-        log_df = load_log_data(conn)
-        
-        if not log_df.empty:
-            st.caption("BUSCAR POR HERRAMIENTA")
-            buscar_codigo = st.text_input("", key="buscar_codigo", label_visibility="collapsed", 
-                                         placeholder="Ingrese código")
-            
-            if buscar_codigo:
-                historial = log_df[log_df['Codigo_Herramienta'] == buscar_codigo].sort_values('Fecha', ascending=False)
-                if not historial.empty:
-                    st.write("")
-                    st.markdown(f"**Hoja de vida: {buscar_codigo}**")
-                    st.dataframe(historial, use_container_width=True, hide_index=True)
-                else:
-                    st.info("No se encontraron movimientos para este código")
-            else:
-                st.write("")
-                st.dataframe(log_df.sort_values('Fecha', ascending=False).head(50), 
-                           use_container_width=True, hide_index=True)
-        else:
-            st.info("No hay movimientos registrados")
-    
-    with admin_tab3:
-        st.markdown("#### Exportar Datos")
-        st.write("")
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.caption("INVENTARIO ACTUAL")
-            inv_df = load_inventory_data(conn)
-            if not inv_df.empty:
-                excel_inv = export_to_excel(inv_df)
-                st.download_button(
-                    label="Descargar Inventario",
-                    data=excel_inv,
-                    file_name=f"inventario_jurmaq_{datetime.now().strftime('%Y%m%d')}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
-        
-        with col2:
-            st.caption("HISTORIAL DE MOVIMIENTOS")
-            log_df = load_log_data(conn)
-            if not log_df.empty:
-                excel_log = export_to_excel(log_df)
-                st.download_button(
-                    label="Descargar Historial",
-                    data=excel_log,
-                    file_name=f"historial_jurmaq_{datetime.now().strftime('%Y%m%d')}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
-
-# MAIN
-def main():
-    conn = get_gsheets_connection()
-    
-    if conn is None:
-        st.stop()
-    
-    # Header minimalista
-    st.markdown('<div class="main-title">JURMAQ — Inventario</div>', unsafe_allow_html=True)
-    
-    # Sidebar
-    with st.sidebar:
-        st.write("")
-        st.write("")
-        st.markdown("### Configuración")
-        st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
-        
-        admin_mode = st.checkbox("Modo Administrador")
-        
-        if admin_mode:
-            password = st.text_input("Contraseña", type="password")
-            
-            if password == st.secrets.get("admin_password", "admin123"):
-                st.markdown('<div class="success-msg">Acceso concedido</div>', unsafe_allow_html=True)
-                show_admin_panel = True
-            elif password:
-                st.markdown('<div class="error-msg">Contraseña incorrecta</div>', unsafe_allow_html=True)
-                show_admin_panel = False
-            else:
-                show_admin_panel = False
-        else:
-            show_admin_panel = False
-        
-        st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
-        st.caption(f"Fecha: {datetime.now().strftime('%d/%m/%Y')}")
-    
-    # Contenido
-    if show_admin_panel:
-        show_admin_interface(conn)
+                st.error("Contrasena incorrecta")
     else:
-        show_user_interface(conn)
+        tab1, tab2, tab3 = st.tabs(["Stock por Obra", "Historial Maestro", "Dashboard"])
+        
+        with tab1:
+            st.subheader("Stock por Obra")
+            df = load_data()
+            if not df.empty:
+                obra_filtro = st.selectbox(
+                    "Filtrar por ubicacion",
+                    ["Todas"] + sorted(df["Ubicacion"].unique().tolist())
+                )
+                if obra_filtro != "Todas":
+                    df_filtrado = df[df["Ubicacion"] == obra_filtro]
+                else:
+                    df_filtrado = df
+                
+                st.dataframe(df_filtrado, use_container_width=True, hide_index=True)
+                
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Total Herramientas", len(df_filtrado))
+                with col2:
+                    disponibles = len(df_filtrado[df_filtrado["Estado"] == "Disponible"])
+                    st.metric("Disponibles", disponibles)
+                with col3:
+                    enuso = len(df_filtrado[df_filtrado["Estado"] != "Disponible"])
+                    st.metric("En Uso", enuso)
+            else:
+                st.info("No hay datos de inventario")
+        
+        with tab2:
+            st.subheader("Historial de Trazabilidad")
+            codigo_buscar = st.text_input("Buscar por codigo", placeholder="JUR20250101120000")
+            
+            if codigo_buscar:
+                try:
+                    conn = get_sheets_connection()
+                    historial = conn.read(worksheet="Historial", usecols=list(range(6)), ttl=5)
+                    historial_filtrado = historial[historial["Codigo"] == codigo_buscar]
+                    
+                    if not historial_filtrado.empty:
+                        st.dataframe(
+                            historial_filtrado.sort_values("Fecha", ascending=False),
+                            use_container_width=True,
+                            hide_index=True
+                        )
+                    else:
+                        st.warning("No se encontro historial para este codigo")
+                except Exception as e:
+                    st.error(f"Error al cargar historial: {e}")
+        
+        with tab3:
+            st.subheader("Dashboard General")
+            df = load_data()
+            if not df.empty:
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.markdown("**Distribucion por Ubicacion**")
+                    ubicacion_counts = df["Ubicacion"].value_counts()
+                    st.bar_chart(ubicacion_counts)
+                with col2:
+                    st.markdown("**Distribucion por Categoria**")
+                    categoria_counts = df["Categoria"].value_counts()
+                    st.bar_chart(categoria_counts)
+                
+                st.markdown("**Estado del Inventario**")
+                estado_counts = df["Estado"].value_counts()
+                st.bar_chart(estado_counts)
+            else:
+                st.info("No hay datos para mostrar")
+        
+        if st.sidebar.button("Cerrar Sesion"):
+            st.session_state.admin_logged = False
+            st.rerun()
 
-if __name__ == "__main__":
-    main()
+st.sidebar.divider()
+st.sidebar.markdown("**Constructora JURMAQ**")
+st.sidebar.caption("2025 - Sistema de Inventario v1.0")
